@@ -1,106 +1,165 @@
-# Mixed DML in Salesforce – Real Scenarios
+# Mixed DML in Salesforce – Real Experiments
 
-Many Salesforce developers assume Mixed DML is simply about “Setup vs Non-Setup objects”.
+Many Salesforce developers assume Mixed DML is just **"Setup vs Non-Setup objects."**
 
-If both appear in the same transaction → ERROR.  
-If they don’t → SAFE.
+If both appear in the same transaction → ❌ ERROR  
+If not → ✅ SAFE
 
-Sounds simple, right?
+Not exactly. Real scenarios break this assumption completely.
 
-Not exactly.  
-The platform behavior is far more nuanced, and some real scenarios actually break this common assumption.
-
-Here are a few experiments I ran 👇
+Here are experiments I ran 👇
 
 ---
 
 ## ⚡ Scenario 1 – Execute Anonymous
 
-Updating a Setup object (User) and a Non-Setup object (Account) in the same anonymous transaction.
+Update **User (Setup)** + **Account (Non-Setup)** in one anonymous transaction.
 
-➡️ **Result:** ❌ Mixed DML Error  
-
-This is the classic example everyone knows.
+➡️ **Result:** ❌ Mixed DML Error. Classic. Everyone knows this one.
 
 ---
 
-## ⚡ Scenario 2 – Trigger on Setup Object
+## ⚡ Scenario 2 – Trigger on User, updates Account
 
-A User trigger updates an Account record.  
-Many developers assume this will fail because it mixes Setup and Non-Setup objects.
+Many expect failure. Setup → Non-Setup mix.
 
-➡️ **Result:** ✅ No Error. Both records update successfully.
+➡️ **Result:** ✅ No Error.
 
-This alone breaks the common belief that any Setup → Non-Setup combination fails.
-
----
-
-## ⚡ Scenario 3 – Multiple operations inside the User trigger
-
-A User trigger performs two operations:
-
-- Updates Account (Non-Setup)
-- Creates GroupMember (Setup)
-
-(Both happening from the same User trigger, either through helper methods or a record-triggered Flow on User)
-
-➡️ **Result:** ❌ Mixed DML Error  
-
-Because the transaction now tries to modify Setup(GroupMember) + Non-Setup(Account) objects together within the same execution path.
+⚠️ Is this because triggers are exempt? Or because **User is special**? Keep reading.
 
 ---
 
-## ⚡ Scenario 4 – Anonymous + Trigger Chain
+## ⚡ Scenario 3 – User trigger: update Account + insert GroupMember
 
-From Execute Anonymous:
+Same trigger, two explicit DML statements.
 
-Update User + create GroupMember, while the User trigger updates Account.
+➡️ **Result:** ❌ Mixed DML Error.
 
-➡️ **Result:** ❌ Mixed DML Error again  
-
-Because the transaction now tries to modify Setup(GroupMember) + Non-Setup(Account) objects together within the same execution path.
+Transaction now has Setup + Non-Setup in same execution path.
 
 ---
 
-## 🔥 Key Insight
+## ⚡ Scenario 4 – Execute Anonymous
 
-Mixed DML isn’t just about touching Setup and Non-Setup objects together.
+Update **User** + insert **GroupMember**, while **User trigger updates Account**.
 
-It’s about how Salesforce evaluates the transaction boundary and execution chain. Triggers, flows, and direct operations can change the outcome completely.
+➡️ **Result:** ❌ Mixed DML Error.
 
-Understanding this subtle behavior is crucial when designing User provisioning logic, automation chains, and complex trigger flows.
-
-Because sometimes what should fail… actually works.  
-And sometimes what looks safe… breaks production.
+Same reason: setup + non-setup accumulate in one transaction.
 
 ---
 
-## 💡 Bonus Insight (often overlooked)
+# 🔬 Deeper – Trigger Direction Tests
 
-Many people assume Group and GroupMember behave the same, but they don’t.
+## ⚡ Scenario 5 – User trigger → insert GroupMember  
+Setup → Setup
 
-- **Group → Non-Setup Object**
-- **GroupMember → Setup Object**
-
-This difference alone can create unexpected Mixed DML errors when automation interacts with public groups or queues.
-
-Understanding these subtle platform behaviors is critical when designing user provisioning flows, automation chains, and trigger frameworks.
-
-Because in Salesforce…
-
-what looks simple on the surface often hides deeper platform rules. 🚀
+➡️ **Result:** ✅ No Error.
 
 ---
 
-Curious if others have encountered surprising Mixed DML behaviors in real projects. 👀
+## ⚡ Scenario 6 – Account trigger → insert/update User  
+Non-Setup trigger → Setup DML
+
+➡️ **Result:** ✅ No Error.
+
+---
+
+## ⚡ Scenario 7 – Account trigger → insert GroupMember  
+Non-Setup trigger → Setup DML
+
+➡️ **Result:** ❌ Mixed DML Error.
+
+---
+
+Scenarios **6 and 7** look identical in structure.
+
+Different objects.  
+Completely different results.
+
+This is where it gets interesting.
+
+---
+
+# 🚨 The Real Finding – It Is Not About the User Object  
+## It Is About Specific Fields
+
+Salesforce documentation states:
+
+> "This restriction exists because some sObjects affect the user's access to records in the org."
+
+The official **setup-sensitive fields on User** are:
+
+- ProfileId  
+- UserRoleId  
+- IsActive  
+
+---
+
+## 🔬 Field-Level Experiment
+
+I tested this directly:
+
+• Update **User.Title** in trigger → Account updates → ✅ No Error  
+
+• Update **User.ProfileId** in trigger → Account updates → ❌ Mixed DML Error  
+
+---
+
+Same trigger.  
+Same Account DML.  
+
+One field change = **completely different outcome**.
+
+---
+
+### Why?
+
+Because **ProfileId directly controls what a user can see and do in the org.**
+
+Salesforce cannot safely run **Account DML under uncertain permission state**.
+
+**Title** is just data.  
+**ProfileId rewrites access.**
+
+That is the difference.
+
+---
+
+# 🔥 Key Insight
+
+Mixed DML is **not Setup vs Non-Setup.**
+
+It is about whether your transaction touches **fields or objects that affect Salesforce’s permission evaluation pipeline.**
+
+Triggers, fields, execution chains — all of it changes the outcome.
+
+Because sometimes what should fail… **actually works.**
+
+And sometimes what looks safe… **breaks production.**
+
+---
+
+# 💡 Bonus: Group vs GroupMember
+
+- **Group → Non-Setup**
+- **GroupMember → Setup**
+
+They look related.  
+They behave **completely differently.**
+
+---
+
+None of this is officially documented as behavior.
+
+All of it is based on **real testing in Dev Console.**
+
+---
+
+Curious if others have hit surprising **Mixed DML behaviors in production.** 👀
 
 #Salesforce  
 #SalesforceDeveloper  
 #Apex  
 #MixedDML  
-#SalesforceArchitecture  
-#SalesforceTips  
-#SalesforceCommunity  
-#DeveloperLife  
-#SalesforceLearning
-
+#SalesforceArchitecture
