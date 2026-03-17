@@ -1,3 +1,5 @@
+# 🚨 allOrNone=false Myth: Why Partial Save Fails in Before Triggers
+
 Many Salesforce developers assume `Database.update(records, false)` always guarantees partial success  
 
 If some records fail → others will still save ✅  
